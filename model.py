@@ -69,8 +69,7 @@ class MultiHeadAttention(nn.Module):
         self.attention = ScaledDotProductAttention()
 
     def forward(self, Q, K, V, attn_mask, adjoin_matrix=None):
-        residual, batch_size = Q, Q.size(0)
-        # (B, S, D) -proj-> (B, S, D) -split-> (
+        residual, batch_size = Q, Q.size(0) 
         q_s = self.W_Q(Q).view(batch_size, -1, self.n_heads, self.d_k).transpose(1, 2)
         k_s = self.W_K(K).view(batch_size, -1, self.n_heads, self.d_k).transpose(1, 2)
         v_s = self.W_V(V).view(batch_size, -1, self.n_heads, self.d_v).transpose(1, 2)
@@ -204,7 +203,3 @@ class PredictionModel2(nn.Module):
         
         return x
 
-if __name__ == '__main__':
-    model = PredictionModel()
-    print(model)
-    

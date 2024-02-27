@@ -50,5 +50,3 @@ def smiles2adjoin(smiles,explicit_hydrogens=True,canonical_atom_order=True):
     
     return atoms_list,adjoin_matrix
 
-if __name__ == '__main__':
-    print(smiles2adjoin('CCO'))

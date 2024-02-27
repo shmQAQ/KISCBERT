@@ -209,3 +209,4 @@ class Predict_Dataset(Dataset):
             y = np.array(target).astype('float32')
 
             return x, y, adjoin_matrix
+    
