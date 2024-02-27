@@ -2,6 +2,7 @@
 # input: a csv file with columns: smiles, kisc(10e7), krisc(10e5)
 #output tokenized smiles, target and adjacency matrix
 from torch.utils.data import Dataset
+import torch
 from rdkit.Chem.Scaffolds import MurckoScaffold
 import numpy as np
 import pandas as pd
@@ -131,8 +132,9 @@ class Pretrain_Dataset(Dataset):
     
 
     def __getitem__(self, idx):
-        smiles = self.data.iloc[idx,self.smiles_field]
-        x, y, adjoin_matrix, weights = self.numericalize(smiles)
+        smiles = self.data[self.smiles_field]
+        smile = smiles[idx]
+        x, y, adjoin_matrix, weights = self.numericalize(smile)
         return x, y, adjoin_matrix, weights
 
         
@@ -140,20 +142,19 @@ class Pretrain_Dataset(Dataset):
         '''
         convert smiles to numerical representation
         '''
-        print('handling smiles')
-        smiles = smiles.np().decode()
         atoms_list, adjoin_matrix = smiles2adjoin(smiles, explicit_hydrogens=self.add_H)
+        adjoin_matrix = torch.from_numpy(adjoin_matrix)
         atoms_list = ['<global>'] + atoms_list
         num_list = [str2num.get(atom, str2num['<unk>']) for atom in atoms_list]
         
-        temp = np.ones((len(num_list), len(num_list)))
+        temp = torch.ones((len(num_list), len(num_list)))
         temp[1:, 1:] = adjoin_matrix
         adjoin_matrix = (1-temp) * -1e9
 
         choice = np.random.permutation(len(num_list)-1)[:max(1, int(len(num_list)*self.noise_feq))]+1
 
-        y = np.array(num_list).astype('int64')
-        weights = np.zeros(len(num_list))
+        y = torch.tensor(num_list, dtype=torch.int64)
+        weights = torch.zeros(len(num_list))
         for i in choice:
             rand = np.random.rand()
             if rand < 0.8:
@@ -163,10 +164,9 @@ class Pretrain_Dataset(Dataset):
                 y[i] = np.random.randint(1, 18)
                 weights[i] = 1
         
-        x = np.array(num_list).astype('int64')
-        weights = np.array(weights).astype('float32')
-        print('smiles handled')
+        x = torch.tensor(num_list, dtype=torch.int64)
         return x, y, adjoin_matrix, weights
+
     
 
 class Predict_Dataset(Dataset):
@@ -188,25 +188,26 @@ class Predict_Dataset(Dataset):
         return len(self.data)
         
     def __getitem__(self, idx):
-        smiles = self.data.iloc[idx,self.smiles_field]
-        target = self.data.iloc[idx,self.target_field]
-        x, y, adjoin_matrix = self.numericalize(smiles, target)
+        smiles = self.data[self.smiles_field]
+        targets = self.data[self.target_field]
+        smile = smiles[idx]
+        target = targets[idx]
+        x, y, adjoin_matrix = self.numericalize(smile, target)
         return x, y, adjoin_matrix
         
     def numericalize(self, smiles, target):
             '''
             convert smiles to numerical representation
             '''
-            smiles = smiles.np().decode()
-            fg_list = fg_list(smiles)
             atoms_list, adjoin_matrix = smiles2adjoin(smiles, explicit_hydrogens=self.add_H)
+            adjoin_matrix = torch.from_numpy(adjoin_matrix)
             atoms_list = ['<global>'] + atoms_list
             num_list = [str2num.get(atom, str2num['<unk>']) for atom in atoms_list]
-            temp = np.ones((len(num_list), len(num_list)))
+            temp = torch.ones((len(num_list), len(num_list)))
             temp[1:, 1:] = adjoin_matrix
             adjoin_matrix = (1-temp) * -1e9
-            x = np.array(num_list).astype('int64')
-            y = np.array(target).astype('float32')
+            x = torch.tensor(num_list, dtype=torch.int64)
+            y = torch.tensor(target, dtype=torch.float32)
 
             return x, y, adjoin_matrix
-    
+
