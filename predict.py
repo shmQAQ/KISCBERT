@@ -3,30 +3,12 @@ import torch.nn as nn
 import numpy as np
 import os
 import pandas as pd
-from torch.utils.data import DataLoader
-from dataset import Predict_Dataset, scaffold_split
-from model import PredictionModel
+from torch.utils.data import DataLoader, random_split
+from dataset import Predict_Dataset 
+from model import Predict_Model
 from rdkit import RDLogger
 from sklearn.metrics import mean_squared_error, r2_score
 import argparse
-
-RDLogger.DisableLog('rdApp.*')
-
-arg = argparse.ArgumentParser()
-arg.add_argument('--batch_size', type=int, default=32)
-arg.add_argument('--epochs', type=int, default=100)
-arg.add_argument('--max_length', type=int, default=300)
-arg.add_argument('--hidden_dropout_prob', type=float, default=0.15)
-arg.add_argument('--add_H', type=bool, default=True)
-arg.add_argument('--file_path', type=str, default='/data')
-arg.add_argument('--smiles_field', type=str, default='smiles')
-arg.add_argument('--label_field', type=str, default='kisc')
-arg.add_argument('--vocab_size', type=int, default=18)
-arg.add_argument('--d_model', type=int, default=256)
-arg.add_argument('--num_layers', type=int, default=6)
-arg.add_argument('--num_heads', type=int, default=4)
-arg.add_argument('--pretrain_path', type=str, default='model_weights')
-
 
 
 def set_random_seed(seed: int) -> None:
@@ -41,23 +23,31 @@ def gpu_check() -> torch.device:
         device = torch.device('cpu')
     return device
 
+def data_split(dataset, split_ratio):
+    train_size = int(split_ratio * len(dataset))
+    val_size = len(dataset) - train_size
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+    return train_dataset, val_dataset
+
+
 def train(model, train_loader, optimizer, criterion, device, pre_train_path=None):
-    model.train()
-    train_loss = 0
+    #fine-tune the model
     if pre_train_path is not None:
         model.load_state_dict(torch.load(pre_train_path))
+    model.train()
+    train_loss = 0
     for i, (x, y, adjoin_matrix) in enumerate(train_loader):
         x, y, adjoin_matrix = x.to(device), y.to(device), adjoin_matrix.to(device)
-        optimizer.zero_grad()
         outputs = model(x, adjoin_matrix)
         loss = criterion(outputs, y)
+        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         train_loss += loss.item()
     return train_loss / len(train_loader)
-    
 
-def evaluate(model, val_loader, criterion, device):
+def evaluate(model, val_loader, criterion,max_target, min_target, device):
+    #evaluate
     model.eval()
     val_loss = 0
     y_true = []
@@ -70,33 +60,48 @@ def evaluate(model, val_loader, criterion, device):
             val_loss += loss.item()
             y_true.extend(y.cpu().numpy())
             y_pred.extend(outputs.cpu().numpy())
+    y_true = y_true * (max_target - min_target) + min_target
+    y_pred = y_pred * (max_target - min_target) + min_target
     return val_loss / len(val_loader), y_true, y_pred
 
 def main(args):
     set_random_seed(42)
     device = gpu_check()
-    model = PredictionModel(num_layers=args.num_layers, d_model=args.d_model, dff=args.d_model*2, num_heads=args.num_heads, vocab_size=args.vocab_size, a=1)
+    model = Predict_Model(num_layers=args.num_layers, d_model=args.d_model, dff=args.d_model*2, num_heads=args.num_heads, vocab_size=args.vocab_size, dropout_rate=args.hidden_dropout_prob)
     model.to(device)
     pre_train_path = os.path.join(args.pretrain_path, 'model_weights.pth')
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     criterion = nn.MSELoss()
-    dataset = Predict_Dataset(args.file_path, args.smiles_field, args.label_field, args.max_length, args.add_H)
-    train_dataset, val_dataset, test_dataset = scaffold_split(dataset)
+    dataset = Predict_Dataset(args.file_path, args.smiles_field, args.label_field, args.add_H)
+    max_target = max(dataset.data[args.label_field])
+    min_target = min(dataset.data[args.label_field])
+    train_dataset, val_dataset  = data_split(dataset, args.split_ratio)
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False)
     val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
-    train_loss = []
-    val_loss = []
     for epoch in range(args.epochs):
-        loss = train(model, train_loader, optimizer, criterion, device, pre_train_path)
-        train_loss.append(loss)
-        print(f'Epoch [{epoch+1}/{args.epochs}], Train Loss: {loss:.4f}')
-    print('Finished Training')
-    val_loss, y_true, y_pred = evaluate(model, val_loader, criterion, device)
-    print(f'Validation Loss: {val_loss:.4f}')
-    print(f'R2 Score: {r2_score(y_true, y_pred)}')
-    print(f'MSE: {mean_squared_error(y_true, y_pred)}')
+        train_loss = train(model, train_loader, optimizer, criterion, device, pre_train_path)    
+        val_loss, y_true, y_pred = evaluate(model, val_loader, criterion, max_target, min_target, device)
+        mse = mean_squared_error(y_true, y_pred)
+        r2 = r2_score(y_true, y_pred)
+        print(f'Epoch: {epoch+1}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, MSE: {mse:.4f}, R2: {r2:.4f}')
     
 
 if __name__ == "__main__":
-    args = arg.parse_args()
+    RDLogger.DisableLog('rdApp.*')
+
+    args = argparse.ArgumentParser()
+    args.add_argument('--batch_size', type=int, default=32)
+    args.add_argument('--epochs', type=int, default=100)
+    args.add_argument('--hidden_dropout_prob', type=float, default=0.10)
+    args.add_argument('--add_H', type=bool, default=True)
+    args.add_argument('--file_path', type=str, default='/data')
+    args.add_argument('--smiles_field', type=str, default='smiles')
+    args.add_argument('--label_field', type=str, default='kisc')
+    args.add_argument('--vocab_size', type=int, default=18)
+    args.add_argument('--d_model', type=int, default=256)
+    args.add_argument('--num_layers', type=int, default=6)
+    args.add_argument('--num_heads', type=int, default=4)
+    args.add_argument('--split_ratio', type=float, default=0.8)
+    args.add_argument('--pretrain_path', type=str, default='model_weights')
+
     main(args)
