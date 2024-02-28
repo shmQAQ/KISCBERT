@@ -9,13 +9,13 @@ from model import BertModel
 from rdkit import RDLogger
 import argparse 
 
-def set_random_seed(seed):
+def set_random_seed(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
 
-def gpu_check():
+def gpu_check() -> torch.device:
     if torch.cuda.is_available():
         device = torch.device('cuda')
     else:
