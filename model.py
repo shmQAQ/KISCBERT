@@ -171,3 +171,31 @@ class Predict_Model(nn.Module):
         x = self.dropout(x)
         x = self.fc2(x)
         return x
+
+'''
+class Predict_Model2(nn.Module):
+    def __init__(self, num_layers=6, d_model=256, num_heads=8, d_ff=512, vocab_size=17, dropout_rate=0.1):
+        super(Predict_Model, self).__init__()
+        self.encoder = Encoder(num_layers, d_model, num_heads, d_ff, vocab_size, dropout_rate)
+        self.fc1 = nn.Linear(d_model * 2, d_model)  
+        self.fc2 = nn.Linear(d_model, 1)
+        self.activation = gelu
+        self.ln = nn.LayerNorm(d_model, eps=1e-6)
+        self.dropout = nn.Dropout(dropout_rate)
+
+    def forward(self, x1, mask1, adjoin_matrix1, x2, mask2, adjoin_matrix2):
+        x1 = self.encoder(x1, mask1, adjoin_matrix1)
+        x1 = x1[:, 0, :] 
+        x2 = self.encoder(x2, mask2, adjoin_matrix2)
+        x2 = x2[:, 0, :] 
+        x = torch.cat([x1, x2], dim=-1) 
+        x = self.fc1(x)
+        x = self.activation(x)
+        x = self.ln(x)
+        x = self.dropout(x)
+        x = self.fc2(x)
+
+        return x
+
+
+'''
