@@ -7,13 +7,6 @@ import math
 import numpy as np
 
 
-def gelu(x):
-    """
-      Implementation of the OpenAI's gelu activation function.
-      Also see https://arxiv.org/abs/1606.08415
-    """
-    return  0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
-
 
 def scaled_dot_product_attention(q, k, v, mask=None, adjoin_matrix=None):
     matmul_qk = torch.matmul(q, k.transpose(-2, -1))
@@ -81,7 +74,7 @@ class PositionwiseFeedforward(nn.Module):
         super(PositionwiseFeedforward, self).__init__()
         self.dense1 = nn.Linear(d_model, d_ff)
         self.dense2 = nn.Linear(d_ff, d_model)
-        self.activation = gelu
+        self.activation = nn.GELU(approximation=True)
 
     def forward(self, x):
         x = self.activation(self.dense1(x))
