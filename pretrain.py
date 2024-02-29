@@ -26,13 +26,13 @@ def train_step(x, adjoin_matrix, y, char_weight,model, optimizer,loss_function=C
     mask = seq.unsqueeze(1).unsqueeze(1)
     model.train()
     predictions = model(x, adjoin_matrix=adjoin_matrix, mask=mask)
-    loss = loss_function(predictions, y)
-    loss = (loss * char_weight).mean()
+    loss = loss_function(predictions.view(-1, predictions.size(-1)), y.view(-1))# problem need to be solved
+    loss = (loss * char_weight.view(-1)).mean()
     optimizer.zero_grad()
     loss.backward()
     optimizer.step()
     train_loss =loss.item()
-    train_accuracy = torch.argmax(predictions, dim=1).eq(y).sum().item() / y.size(0)#?
+    train_accuracy = torch.argmax(predictions, dim=-1).eq(y).sum().item() / y.size(0)#?
     return train_loss, train_accuracy
 
 def main(args):
