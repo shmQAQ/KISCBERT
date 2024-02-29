@@ -2,12 +2,12 @@ import torch
 import torch.nn as nn
 import numpy as np
 import os
-import pandas as pd
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, SubsetRandomSampler
 from dataset import Predict_Dataset 
 from model import Predict_Model
 from rdkit import RDLogger
 from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.model_selection import KFold
 import argparse
 
 
@@ -23,22 +23,23 @@ def gpu_check() -> torch.device:
         device = torch.device('cpu')
     return device
 
-def data_split(dataset, split_ratio):
-    train_size = int(split_ratio * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-    return train_dataset, val_dataset
-
-
 def train(model, train_loader, optimizer, criterion, device, pre_train_path=None):
     #fine-tune the model
     if pre_train_path is not None:
-        model.load_state_dict(torch.load(pre_train_path))
+        pretrain_model_dict = torch.load(pre_train_path)
+        model_dict = model.state_dict()
+        pretrain_model_dict = {k: v for k, v in pretrain_model_dict.items() if k in model_dict}
+        model_dict.update(pretrain_model_dict)
+        model.load_state_dict(model_dict)
+
     model.train()
     train_loss = 0
     for i, (x, y, adjoin_matrix) in enumerate(train_loader):
         x, y, adjoin_matrix = x.to(device), y.to(device), adjoin_matrix.to(device)
-        outputs = model(x, adjoin_matrix)
+        seq = (x == 0).float()
+        mask = seq.unsqueeze(1).unsqueeze(1)
+        outputs = model(x=x, mask=mask, adjoin_matrix=adjoin_matrix)
+        outputs = outputs.squeeze()
         loss = criterion(outputs, y)
         optimizer.zero_grad()
         loss.backward()
@@ -65,43 +66,47 @@ def evaluate(model, val_loader, criterion,max_target, min_target, device):
     return val_loss / len(val_loader), y_true, y_pred
 
 def main(args):
-    set_random_seed(42)
+    set_random_seed(args.random_seed)
     device = gpu_check()
-    model = Predict_Model(num_layers=args.num_layers, d_model=args.d_model, dff=args.d_model*2, num_heads=args.num_heads, vocab_size=args.vocab_size, dropout_rate=args.hidden_dropout_prob)
+    model = Predict_Model(num_layers=args.num_layers, d_model=args.d_model, d_ff=args.d_model*2, num_heads=args.num_heads, vocab_size=args.vocab_size, dropout_rate=args.hidden_dropout_prob)
     model.to(device)
-    pre_train_path = os.path.join(args.pretrain_path, 'model_weights.pth')
+    pre_train_path = os.path.join(args.pretrain_path, 'model_weights.pth') if args.pretrain_path is not None else None
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     criterion = nn.MSELoss()
     dataset = Predict_Dataset(args.file_path, args.smiles_field, args.label_field, args.add_H)
-    max_target = max(dataset.data[args.label_field])
-    min_target = min(dataset.data[args.label_field])
-    train_dataset, val_dataset  = data_split(dataset, args.split_ratio)
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False)
-    val_loader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
-    for epoch in range(args.epochs):
-        train_loss = train(model, train_loader, optimizer, criterion, device, pre_train_path)    
-        val_loss, y_true, y_pred = evaluate(model, val_loader, criterion, max_target, min_target, device)
-        mse = mean_squared_error(y_true, y_pred)
-        r2 = r2_score(y_true, y_pred)
-        print(f'Epoch: {epoch+1}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, MSE: {mse:.4f}, R2: {r2:.4f}')
+    max_target = max(dataset.df[args.label_field])
+    min_target = min(dataset.df[args.label_field])
+    kfold = KFold(n_splits=args.kfold, shuffle=True, random_state=args.random_seed)
+    for fold, (train_index, val_index) in enumerate(kfold.split(dataset)):
+        train_sampler = SubsetRandomSampler(train_index)
+        val_sampler = SubsetRandomSampler(val_index)
+        train_loader = DataLoader(dataset, batch_size=args.batch_size, sampler=train_sampler, collate_fn=dataset.collate_fn, num_workers=4, pin_memory=True)
+        val_loader = DataLoader(dataset, batch_size=args.batch_size, sampler=val_sampler, collate_fn=dataset.collate_fn, num_workers=4, pin_memory=True)
+        for epoch in range(args.epochs):
+            train_loss = train(model, train_loader, optimizer, criterion, device, pre_train_path)
+            val_loss, y_true, y_pred = evaluate(model, val_loader, criterion, max_target, min_target, device)
+            r2 = r2_score(y_true, y_pred)
+            print(f'Fold: {fold+1}, Epoch: {epoch+1}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, R2: {r2:.4f}')
     
 
 if __name__ == "__main__":
     RDLogger.DisableLog('rdApp.*')
 
-    args = argparse.ArgumentParser()
-    args.add_argument('--batch_size', type=int, default=32)
-    args.add_argument('--epochs', type=int, default=100)
-    args.add_argument('--hidden_dropout_prob', type=float, default=0.10)
-    args.add_argument('--add_H', type=bool, default=True)
-    args.add_argument('--file_path', type=str, default='/data')
-    args.add_argument('--smiles_field', type=str, default='smiles')
-    args.add_argument('--label_field', type=str, default='kisc')
-    args.add_argument('--vocab_size', type=int, default=18)
-    args.add_argument('--d_model', type=int, default=256)
-    args.add_argument('--num_layers', type=int, default=6)
-    args.add_argument('--num_heads', type=int, default=4)
-    args.add_argument('--split_ratio', type=float, default=0.8)
-    args.add_argument('--pretrain_path', type=str, default='model_weights')
-
+    arg = argparse.ArgumentParser()
+    arg.add_argument('--batch_size', type=int, default=32)
+    arg.add_argument('--epochs', type=int, default=100)
+    arg.add_argument('--hidden_dropout_prob', type=float, default=0.10)
+    arg.add_argument('--add_H', type=bool, default=True)
+    arg.add_argument('--file_path', type=str, default='bert/data/weights.csv')
+    arg.add_argument('--smiles_field', type=str, default='smiles')
+    arg.add_argument('--label_field', type=str, default='weights')
+    arg.add_argument('--vocab_size', type=int, default=18)
+    arg.add_argument('--d_model', type=int, default=256)
+    arg.add_argument('--num_layers', type=int, default=6)
+    arg.add_argument('--num_heads', type=int, default=4)
+    arg.add_argument('--random_seed', type=int, default=42)
+    arg.add_argument('--kfold', type=int, default=5)
+    arg.add_argument('--split_ratio', type=float, default=0.8)
+    arg.add_argument('--pretrain_path', type=str, default=None)
+    args = arg.parse_args()
     main(args)

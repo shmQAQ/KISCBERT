@@ -98,7 +98,7 @@ class Predict_Dataset(Dataset):
     return tokenized smiles, target and adjacency matrix    
     '''
     def __init__(self, file_path, smiles_field, target_field, add_H=True):
-        self.data = pd.read_csv(os.path.join(file_path))
+        self.df = pd.read_csv(os.path.join(file_path))
         self.smiles_field = smiles_field
         self.target_field = target_field
         self.add_H = add_H
@@ -106,7 +106,7 @@ class Predict_Dataset(Dataset):
         self.num2str = num2str
 
     def __len__(self):
-        return len(self.data)
+        return len(self.df)
         
     def __getitem__(self, idx):
         smiles = self.df.iloc[idx][self.smiles_field]
