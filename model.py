@@ -7,6 +7,13 @@ import math
 import numpy as np
 
 
+def gelu(x):
+    """
+      Implementation of the OpenAI's gelu activation function.
+      Also see https://arxiv.org/abs/1606.08415
+    """
+    return  0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
+
 
 def scaled_dot_product_attention(q, k, v, mask=None, adjoin_matrix=None):
     matmul_qk = torch.matmul(q, k.transpose(-2, -1))
@@ -74,7 +81,7 @@ class PositionwiseFeedforward(nn.Module):
         super(PositionwiseFeedforward, self).__init__()
         self.dense1 = nn.Linear(d_model, d_ff)
         self.dense2 = nn.Linear(d_ff, d_model)
-        self.activation = nn.GELU(approximation=True)
+        self.activation = nn.GELU(approximate='tanh')
 
     def forward(self, x):
         x = self.activation(self.dense1(x))
@@ -89,17 +96,21 @@ class EncoderLayer(nn.Module):
         self.positionwise_feedforward = PositionwiseFeedforward(d_model, d_ff)
         self.layernorm1 = nn.LayerNorm(d_model, eps=1e-6)
         self.layernorm2 = nn.LayerNorm(d_model, eps=1e-6)
+        self.layernorm3 = nn.LayerNorm(d_model, eps=1e-6)
         self.dropout1 = nn.Dropout(dropout_rate)
         self.dropout2 = nn.Dropout(dropout_rate)
 
+
     def forward(self, x, mask, adjoin_matrix):
+        x = self.layernorm1(x)
         attention_output, _ = self.multi_head_attention(x, x, x, mask, adjoin_matrix)
         attention_output = self.dropout1(attention_output)
-        x = self.layernorm1(x + attention_output)
+        x = self.layernorm2(x + attention_output)
 
         feedforward_output = self.positionwise_feedforward(x)
         feedforward_output = self.dropout2(feedforward_output)
-        x = self.layernorm2(x + feedforward_output)
+        x = self.layernorm3(x + feedforward_output)
+        
 
         return x, attention_output
     
@@ -133,7 +144,7 @@ class BertModel(nn.Module):
         self.encoder = Encoder(num_layers, d_model, num_heads, d_ff, vocab_size, dropout_rate)
         self.fc1 = nn.Linear(d_model, d_model)
         self.fc2 = nn.Linear(d_model, vocab_size)
-        self.activation = gelu
+        self.activation = nn.GELU(approximate='tanh')
         self.ln = nn.LayerNorm(d_model, eps=1e-6)
 
     def forward(self, x, mask, adjoin_matrix):
@@ -141,17 +152,17 @@ class BertModel(nn.Module):
         x = self.fc1(x)
         x = self.activation(x)
         x = self.ln(x)
-        x = self.fc2(x)
+        x = self.fc2(x)#
         return x
     
 
 class Predict_Model(nn.Module):
-    def __init__(self, num_layers=6, d_model=256, num_heads=8, d_ff=512, vocab_size=17, dropout_rate=0.1):
+    def __init__(self, num_layers=6, d_model=256, num_heads=8, d_ff=512, vocab_size=18, dropout_rate=0.1):
         super(Predict_Model, self).__init__()
         self.encoder = Encoder(num_layers, d_model, num_heads, d_ff, vocab_size, dropout_rate)
         self.fc1 = nn.Linear(d_model, d_model)
         self.fc2 = nn.Linear(d_model, 1)
-        self.activation = gelu
+        self.activation = nn.GELU(approximate='tanh')
         self.ln = nn.LayerNorm(d_model, eps=1e-6)
         self.dropout = nn.Dropout(dropout_rate)
 
@@ -164,7 +175,7 @@ class Predict_Model(nn.Module):
         x = self.dropout(x)
         x = self.fc2(x)
         return x
-
+    
 '''
 class Predict_Model2(nn.Module):
     def __init__(self, num_layers=6, d_model=256, num_heads=8, d_ff=512, vocab_size=17, dropout_rate=0.1):
