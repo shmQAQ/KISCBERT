@@ -1,6 +1,5 @@
 import torch
 from torch.nn import CrossEntropyLoss
-from torch.nn.functional import log_softmax
 from torch.utils.data import DataLoader
 import numpy as np
 import time
@@ -41,11 +40,11 @@ def main(args):
     set_random_seed(args.random_seed)
     device = gpu_check()
     model = BertModel(args.num_layers, args.d_model, args.num_heads, 2*args.d_model, args.vocab_size, args.hidden_dropout_prob)
-    model = torch.compile(model, mode='max-autotune')
+    model = torch.compile(model=model, mode='max-autotune')#experimental feature
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     train_dataset = Pretrain_Dataset(args.file_path, args.smiles_field,args.add_H)
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size,collate_fn=train_dataset.collate_fn, shuffle=True, num_workers=4, pin_memory=True,persistent_workers=True)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size,collate_fn=train_dataset.collate_fn, shuffle=True, num_workers=8, pin_memory=True,persistent_workers=True)
     train_losses = []
     train_accuracies = []
     for epoch in range(args.epochs):
@@ -64,18 +63,17 @@ if __name__ == '__main__':
     RDLogger.DisableLog('rdApp.*')
 
     arg = argparse.ArgumentParser()
-    arg.add_argument('--batch_size', type=int, default=32)
-    arg.add_argument('--epochs', type=int, default=100)
-    arg.add_argument('--max_length', type=int, default=300)
+    arg.add_argument('--batch_size', type=int, default=5)
+    arg.add_argument('--epochs', type=int, default=100000)
     arg.add_argument('--hidden_dropout_prob', type=float, default=0.15)
     arg.add_argument('--add_H', type=bool, default=True)
-    arg.add_argument('--file_path', type=str, default='data/weights.csv')
-    arg.add_argument('--smiles_field', type=str, default='smiles')
+    arg.add_argument('--file_path', type=str, default='data/0.5_similarity.csv')
+    arg.add_argument('--smiles_field', type=str, default='CSV SMILES')
     arg.add_argument('--vocab_size', type=int, default=18)
     arg.add_argument('--d_model', type=int, default=256)
     arg.add_argument('--num_layers', type=int, default=6)
     arg.add_argument('--num_heads', type=int, default=4)
-    arg.add_argument('--save_path', type=str, default='model_weights')
+    arg.add_argument('--save_path', type=str, default='model_weights/model.pt')
     arg.add_argument('--random_seed', type=int, default=42)
 
     args = arg.parse_args()

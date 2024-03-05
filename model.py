@@ -7,13 +7,6 @@ import math
 import numpy as np
 
 
-def gelu(x):
-    """
-      Implementation of the OpenAI's gelu activation function.
-      Also see https://arxiv.org/abs/1606.08415
-    """
-    return  0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
-
 
 def scaled_dot_product_attention(q, k, v, mask=None, adjoin_matrix=None):
     matmul_qk = torch.matmul(q, k.transpose(-2, -1))
@@ -152,7 +145,7 @@ class BertModel(nn.Module):
         x = self.fc1(x)
         x = self.activation(x)
         x = self.ln(x)
-        x = self.fc2(x)#
+        x = self.fc2(x)
         return x
     
 
@@ -160,8 +153,8 @@ class Predict_Model(nn.Module):
     def __init__(self, num_layers=6, d_model=256, num_heads=8, d_ff=512, vocab_size=18, dropout_rate=0.1):
         super(Predict_Model, self).__init__()
         self.encoder = Encoder(num_layers, d_model, num_heads, d_ff, vocab_size, dropout_rate)
-        self.fc1 = nn.Linear(d_model, d_model)
-        self.fc2 = nn.Linear(d_model, 1)
+        self.f1 = nn.Linear(d_model, d_model)
+        self.f2 = nn.Linear(d_model, 1)
         self.activation = nn.GELU(approximate='tanh')
         self.ln = nn.LayerNorm(d_model, eps=1e-6)
         self.dropout = nn.Dropout(dropout_rate)
@@ -169,11 +162,11 @@ class Predict_Model(nn.Module):
     def forward(self, x, mask, adjoin_matrix):
         x = self.encoder(x, mask, adjoin_matrix)
         x = x[:, 0, :] 
-        x = self.fc1(x)
+        x = self.f1(x)
         x = self.activation(x)
         x = self.ln(x)
         x = self.dropout(x)
-        x = self.fc2(x)
+        x = self.f2(x)
         return x
     
 '''
@@ -183,7 +176,7 @@ class Predict_Model2(nn.Module):
         self.encoder = Encoder(num_layers, d_model, num_heads, d_ff, vocab_size, dropout_rate)
         self.fc1 = nn.Linear(d_model * 2, d_model)  
         self.fc2 = nn.Linear(d_model, 1)
-        self.activation = gelu
+        self.activation = nn.GELU(approximate='tanh')
         self.ln = nn.LayerNorm(d_model, eps=1e-6)
         self.dropout = nn.Dropout(dropout_rate)
 
@@ -200,6 +193,5 @@ class Predict_Model2(nn.Module):
         x = self.fc2(x)
 
         return x
-
 
 '''

@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader, SubsetRandomSampler
 from dataset import Predict_Dataset 
 from model import Predict_Model
 from rdkit import RDLogger
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.metrics import  r2_score
 from sklearn.model_selection import KFold
 import argparse
 
@@ -40,6 +40,7 @@ def train(model, train_loader, optimizer, criterion, device, pre_train_path=None
         mask = seq.unsqueeze(1).unsqueeze(1)
         mask = mask.to(device)
         outputs = model(x=x, mask=mask, adjoin_matrix=adjoin_matrix)
+        outputs = outputs.squeeze(1)
         loss = criterion(outputs, y)
         optimizer.zero_grad()
         loss.backward()
@@ -60,6 +61,7 @@ def evaluate(model, val_loader, criterion,max_target, min_target, device):
             mask = seq.unsqueeze(1).unsqueeze(1)
             mask = mask.to(device)
             outputs = model(x=x, adjoin_matrix=adjoin_matrix, mask=mask)
+            outputs=outputs.squeeze(1)
             loss = criterion(outputs, y)
             val_loss += loss.item()
             y_true.extend(y.cpu().numpy())
@@ -76,7 +78,7 @@ def main(args):
     model = Predict_Model(num_layers=args.num_layers, d_model=args.d_model, d_ff=args.d_model*2, num_heads=args.num_heads, vocab_size=args.vocab_size, dropout_rate=args.hidden_dropout_prob)
     model = torch.compile(model,mode='max-autotune')
     model.to(device)
-    pre_train_path = os.path.join(args.pretrain_path, 'model_weights.pth') if args.pretrain_path is not None else None
+    pre_train_path = os.path.join(args.pretrain_path, 'model.pt') if args.pretrain_path is not None else None
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-5)
     criterion = nn.SmoothL1Loss()
     dataset = Predict_Dataset(args.file_path, args.smiles_field, args.label_field, args.add_H)
@@ -103,9 +105,9 @@ if __name__ == "__main__":
     arg.add_argument('--epochs', type=int, default=100)
     arg.add_argument('--hidden_dropout_prob', type=float, default=0.10)
     arg.add_argument('--add_H', type=bool, default=True)
-    arg.add_argument('--file_path', type=str, default='data/weights.csv')
+    arg.add_argument('--file_path', type=str, default='data/kisc1.xlsx')
     arg.add_argument('--smiles_field', type=str, default='smiles')
-    arg.add_argument('--label_field', type=str, default='weights')
+    arg.add_argument('--label_field', type=str, default='kisc')
     arg.add_argument('--vocab_size', type=int, default=18)
     arg.add_argument('--d_model', type=int, default=256)
     arg.add_argument('--num_layers', type=int, default=6)
@@ -113,6 +115,6 @@ if __name__ == "__main__":
     arg.add_argument('--random_seed', type=int, default=42)
     arg.add_argument('--kfold', type=int, default=5)
     arg.add_argument('--split_ratio', type=float, default=0.8)
-    arg.add_argument('--pretrain_path', type=str, default=None)
+    arg.add_argument('--pretrain_path', type=str, default='model_weights/')
     args = arg.parse_args()
     main(args)

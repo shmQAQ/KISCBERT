@@ -18,10 +18,8 @@ def pad_or_truncate_1d(tensor_list, max_size, pad_value=0):
     padded_tensors = []
     for tensor in tensor_list:
         if tensor.size(0) > max_size:
-            # Truncate the tensor if it is larger than max_size
             tensor = tensor[:max_size]
         elif tensor.size(0) < max_size:
-            # Pad the tensor if it is smaller than max_size
             pad_size = max_size - tensor.size(0)
             pad = torch.full((pad_size,), pad_value)
             tensor = torch.cat([tensor, pad], dim=0)
@@ -31,9 +29,9 @@ def pad_or_truncate_1d(tensor_list, max_size, pad_value=0):
 def pad_or_truncate_2d(matrix_list, max_size, pad_value=0):
     padded_matrices = []
     for matrix in matrix_list:
-        # Create a new tensor filled with pad_value
+        if max(matrix.size(0), matrix.size(1)) > max_size:
+            matrix = matrix[:max_size, :max_size]
         padded_matrix = torch.full((max_size, max_size), pad_value)
-        # Copy the values from the original matrix
         rows = min(matrix.size(0), max_size)
         cols = min(matrix.size(1), max_size)
         padded_matrix[:rows, :cols] = matrix[:rows, :cols]
@@ -53,6 +51,7 @@ class Pretrain_Dataset(Dataset):
         self.vocab = str2num
         self.devocab = num2str
         self.addH = addH
+        self.padding_length = self.get_padding_length()
 
     def __len__(self):
         return len(self.df)
@@ -83,11 +82,19 @@ class Pretrain_Dataset(Dataset):
 
     def collate_fn(self, batch):
         x, y, adjoin_matrix, weight = zip(*batch)
-        x = pad_or_truncate_1d(x, max_size=128, pad_value=self.vocab['<pad>'])
-        y = pad_or_truncate_1d(y, max_size=128, pad_value=self.vocab['<pad>'])
-        adjoin_matrix = pad_or_truncate_2d(adjoin_matrix, max_size=128, pad_value=-1e9)
-        weight = pad_or_truncate_1d(weight, max_size=128, pad_value=0)
+        x = pad_or_truncate_1d(x, max_size=self.padding_length, pad_value=self.vocab['<pad>'])
+        y = pad_or_truncate_1d(y, max_size=self.padding_length, pad_value=self.vocab['<pad>'])
+        adjoin_matrix = pad_or_truncate_2d(adjoin_matrix, max_size=self.padding_length, pad_value=-1e9)
+        weight = pad_or_truncate_1d(weight, max_size=self.padding_length, pad_value=0)
         return x, y, adjoin_matrix, weight
+    
+    def get_padding_length(self):
+        padding_length = 0
+        for i in range(len(self.df)):
+            smiles = self.df.iloc[i][self.smiles_field]
+            atoms_list, adjoin_matrix = smiles2adjoin(smiles, explicit_hydrogens=self.addH)
+            padding_length = max(padding_length, len(atoms_list))
+        return padding_length
 
     
 
@@ -98,12 +105,16 @@ class Predict_Dataset(Dataset):
     return tokenized smiles, target and adjacency matrix    
     '''
     def __init__(self, file_path, smiles_field, target_field, add_H=True):
-        self.df = pd.read_csv(os.path.join(file_path))
+        try:
+            self.df = pd.read_csv(os.path.join(file_path))
+        except:
+            self.df = pd.read_excel(os.path.join(file_path))
         self.smiles_field = smiles_field
         self.target_field = target_field
         self.add_H = add_H
         self.str2num = str2num
         self.num2str = num2str
+        self.padding_length = self.get_padding_length()
 
     def __len__(self):
         return len(self.df)
@@ -129,8 +140,16 @@ class Predict_Dataset(Dataset):
 
     def collate_fn(self, batch):
         x, y, adjoin_matrix = zip(*batch)
-        x = pad_or_truncate_1d(x, max_size=128, pad_value=self.str2num['<pad>'])
-        adjoin_matrix = pad_or_truncate_2d(adjoin_matrix, max_size=128, pad_value=-1e9)
+        x = pad_or_truncate_1d(x, max_size=self.padding_length, pad_value=self.str2num['<pad>'])
+        adjoin_matrix = pad_or_truncate_2d(adjoin_matrix, max_size=self.padding_length, pad_value=-1e9)
         y = torch.stack(y)
         return x, y, adjoin_matrix
+    
+    def get_padding_length(self):
+        padding_length = 0
+        for i in range(len(self.df)):
+            smiles = self.df.iloc[i][self.smiles_field]
+            atoms_list, adjoin_matrix = smiles2adjoin(smiles, explicit_hydrogens=self.add_H)
+            padding_length = max(padding_length, len(atoms_list))
+        return padding_length
 
